@@ -1,8 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using ProductApi.Data;
-using ProductApi.Mappings;
+using ProductApi.Common;
 using ProductApi.Models.Dtos;
+using ProductApi.Services;
 
 namespace ProductApi.Controllers;
 
@@ -10,67 +9,74 @@ namespace ProductApi.Controllers;
 [Route("api/[controller]")]
 public class ProductsController : ControllerBase
 {
-    private readonly AppDbContext _context;
+    private readonly IProductService _service;
 
-    public ProductsController(AppDbContext context)
+    public ProductsController(IProductService service)
     {
-        _context = context;
+        _service = service;
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetAll()
+    [ProducesResponseType(typeof(List<ProductResponse>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status500InternalServerError)]
+    public async Task<ActionResult<List<ProductResponse>>> GetAll()
     {
-        var products = await _context.Products.ToListAsync();
-        var response = products.Select(p => p.ToResponse());
-        return Ok(response);
+        Result<List<ProductResponse>> result = await _service.GetAllAsync();
+
+        if (result.IsFailure)
+            return StatusCode(500, new { error = result.Error });
+
+        return Ok(result.Value);
     }
 
     [HttpGet("{id}")]
-    public async Task<IActionResult> GetById(int id)
+    [ProducesResponseType(typeof(ProductResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ProductResponse>> GetById(int id)
     {
-        var product = await _context.Products.FindAsync(id);
+        Result<ProductResponse> result = await _service.GetByIdAsync(id);
 
-        if (product == null)
-            return NotFound();
+        if (result.IsFailure)
+            return NotFound(new { error = result.Error });
 
-        return Ok(product.ToResponse());
+        return Ok(result.Value);
     }
 
     [HttpPost]
-    public async Task<IActionResult> Create(CreateProductRequest request)
+    [ProducesResponseType(typeof(ProductResponse), StatusCodes.Status201Created)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ProductResponse>> Create(CreateProductRequest request)
     {
-        var product = request.ToEntity();
+        Result<ProductResponse> result = await _service.CreateAsync(request);
 
-        _context.Products.Add(product);
-        await _context.SaveChangesAsync();
+        if (result.IsFailure)
+            return BadRequest(new { error = result.Error });
 
-        return CreatedAtAction(nameof(GetById), new { id = product.Id }, product.ToResponse());
+        return CreatedAtAction(nameof(GetById), new { id = result.Value.Id }, result.Value);
     }
 
     [HttpPut("{id}")]
-    public async Task<IActionResult> Update(int id, UpdateProductRequest request)
+    [ProducesResponseType(typeof(ProductResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ProductResponse>> Update(int id, UpdateProductRequest request)
     {
-        var existing = await _context.Products.FindAsync(id);
+        Result<ProductResponse> result = await _service.UpdateAsync(id, request);
 
-        if (existing == null)
-            return NotFound();
+        if (result.IsFailure)
+            return NotFound(new { error = result.Error });
 
-        request.UpdateEntity(existing);
-        await _context.SaveChangesAsync();
-
-        return Ok(existing.ToResponse());
+        return Ok(result.Value);
     }
 
     [HttpDelete("{id}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> Delete(int id)
     {
-        var product = await _context.Products.FindAsync(id);
+        Result result = await _service.DeleteAsync(id);
 
-        if (product == null)
-            return NotFound();
-
-        _context.Products.Remove(product);
-        await _context.SaveChangesAsync();
+        if (result.IsFailure)
+            return NotFound(new { error = result.Error });
 
         return NoContent();
     }
